@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   repository: vernemq/vernemq
-  tag: 1.12.3-alpine
+  tag: 2.2.1-alpine
 
   pullPolicy: IfNotPresent
 
@@ -15,9 +15,12 @@ fullnameOverride: ""
 
 serviceMonitor:
   create: false
+  interval: 30s
   labels: {}
 
 service:
+  # Can be disabled if more advanced use cases require more complex setups, e.g., combining LoadBalancer and ClusterIP for internal and external access. See also issue #274.
+  enabled: true
   # NodePort - Listen to a port on nodes and forward to the service.
   # ClusterIP - Listen on the service internal to the cluster only.
   # LoadBalancer - Create a LoadBalancer in the cloud provider and forward to the service.
@@ -49,8 +52,21 @@ service:
     port: 8443
     # This is the port used by nodes to expose the service
     nodePort: 8443
+  api:
+    enabled: false
+    type: ClusterIP
+    port: 8888
+    nodePort: 38888
+    annotations: {}
   annotations: {}
   labels: {}
+
+headlessService:
+  customPorts: []
+  # Example of how to specify custom ports:
+  # - name: custom-port1
+  #   port: 1234
+  #   targetPort: 1234
 
 ## Ingress can optionally be applied when enabling the MQTT websocket service
 ## This allows for an ingress controller to route web ports and arbitrary hostnames
@@ -58,6 +74,7 @@ service:
 ## termination for the websocket traffic. Ingress is only possible for traffic exchanged
 ## over HTTP, so ONLY the websocket service take advantage of ingress.
 ingress:
+  className: ""
   enabled: false
 
   labels: {}
@@ -72,7 +89,9 @@ ingress:
   ## Paths to use for ingress rules.
   ##
   paths:
-    - /
+    - path: /
+      pathType: ImplementationSpecific
+
 
   ## TLS configuration for ingress
   ## Secret must be manually created in the namespace
@@ -108,16 +127,25 @@ tolerations: []
 ## Ref: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity
 podAntiAffinity: soft
 
+# Security context (for the pods)
 securityContext:
   runAsUser: 10000
   runAsGroup: 10000
   fsGroup: 10000
+
+# Security context (for the containers, uncomment if needed; default is no specific container-level security context)
+# containerSecurityContext:
+  # privileged: ...
+  # ...
 
 ## If RBAC is enabled on the cluster,VerneMQ needs a service account
 ## with permissisions sufficient to list pods
 rbac:
   create: true
   serviceAccount:
+    ## Configure to auto mount service account token
+    ## Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.27/#podspec-v1-core
+    automountServiceAccountToken: true
     create: true
     ## Service account name to be used.
     ## If not set and serviceAccount.create is true a name is generated using the fullname template.
@@ -130,7 +158,7 @@ persistentVolume:
 
   ## VerneMQ data Persistent Volume access modes
   ## Must match those of existing PV or dynamic provisioner
-  ## Ref: http://kubernetes.io/docs/user-guide/persistent-volumes/
+  ## Ref: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes
   accessModes:
     - ReadWriteOnce
 
@@ -172,6 +200,9 @@ statefulset:
   ## Statefulsets rolling update update strategy
   ## Ref: https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#rolling-update
   updateStrategy: RollingUpdate
+  ## If the strategy is set to RollingUpdate, parameterize the way pods are restarted
+  ## Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.27/#rollingupdatestatefulsetstrategy-v1-apps
+  rollingUpdate: {}
   ## Configure how much time VerneMQ takes to move offline queues to other nodes
   ## Ref: https://vernemq.com/docs/clustering/#detailed-cluster-leave-case-a-make-a-live-node-leave
   terminationGracePeriodSeconds: 60
@@ -184,6 +215,10 @@ statefulset:
     successThreshold: 1
     failureThreshold: 3
   readinessProbe:
+    httpGet:
+      path: /health/ping
+      port: api
+      scheme: HTTP
     initialDelaySeconds: 90
     periodSeconds: 10
     timeoutSeconds: 5
@@ -194,12 +229,17 @@ statefulset:
 #    prometheus.io/port: "8888"
   annotations: {}
   labels: {}
+  podLabels: {}
   lifecycle: {}
+  imagePullSecrets:
+#    - "my-image-pull-secret"
 
 pdb:
   enabled: false
   minAvailable: 1
   # maxUnavailable: 1
+
+certificates: {}
 
 ## VerneMQ settings
 
@@ -220,15 +260,23 @@ additionalEnv:
 #    value: "10000"
 #  - name: DOCKER_VERNEMQ_MAX_OFFLINE_MESSAGES
 #    value: "-1"
+#  Please note that the following environment variables will conflict
+#  with configuration under the `certificates` config key
 #  - name: DOCKER_VERNEMQ_LISTENER__SSL__CAFILE
 #    value: "/etc/ssl/vernemq/tls.crt"
 #  - name: DOCKER_VERNEMQ_LISTENER__SSL__CERTFILE
 #    value: "/etc/ssl/vernemq/tls.crt"
 #  - name: DOCKER_VERNEMQ_LISTENER__SSL__KEYFILE
 #    value: "/etc/ssl/vernemq/tls.key"
-
-envFrom: {}
+envFrom: []
 # add additional environment variables e.g. from a configmap or secret
 # can be usefull if you wanna use authentication via files
 #  - secretRef:
 #      name: vernemq-users
+
+acl:
+  enabled: false
+  labels: {}
+  annotations: {}
+  content: |-
+    topic #
